@@ -11,8 +11,6 @@ URL = f"https://api.telegram.org/bot{TOKEN}/"
 DATA_FILE = "user_data.json"
 
 # Inicializar dados
-
-# TESTE PARA VEZ SE TUDO FOI 
 def load_data():
     try:
         with open(DATA_FILE, 'r') as f:
@@ -45,18 +43,27 @@ def handle_daily_play(user_id, username, chat_id):
     if str(user_id) not in data:
         data[str(user_id)] = {
             "TAMANHO DA TETA": 0,
+            "last_play": None,
+            "total_plays": 0,
+            "username": username
         }
     user_data = data[str(user_id)]
+    
     if not is_new_day(user_data["last_play"]):
         return "OH NOJEIRA, TIRA A MÃO DO PEITO! Isso aqui é um grupo de família, volta amanhã!"
+    
     points = generate_daily_result()
     user_data["TAMANHO DA TETA"] += points
+    user_data["last_play"] = datetime.now().isoformat()
+    user_data["total_plays"] += 1
     save_data(data)
+    
     if points > 0:
         message = f"QUE TETÃO! @{username} VOCÊ GANHOU **+{points} CM DE TETA**!"
     else:
-        message = f"oh dó... @{username} VOCÊ PERDEU **{points} CM DE TETA**."
-    message += f"O TAMANHO DA SUA TETA É **{user_data['score']} CM, PEITUDA METIDA! **"
+        message = f"Oh dó... @{username} VOCÊ PERDEU **{abs(points)} CM DE TETA**."
+    
+    message += f"\nO TAMANHO DA SUA TETA É **{user_data['TAMANHO DA TETA']} CM, PEITUDA METIDA!**"
     return message
 
 # Comando /ranking
@@ -64,11 +71,15 @@ def get_ranking(chat_id):
     data = load_data()
     if not data:
         return "Ranking vazio. Use /jogar para começar!"
-    sorted_users = sorted(data.items(), key=lambda x: x[1]["score"], reverse=True)
-    ranking_text = " **RANKING DO DIA** \n\n"
+    
+    sorted_users = sorted(data.items(), key=lambda x: x[1]["TAMANHO DA TETA"], reverse=True)
+    
+    ranking_text = "**RANKING DO DIA**\n\n"
     for i, (user_id, user_data) in enumerate(sorted_users[:10], 1):
         medal = "🥇 " if i == 1 else "🥈 " if i == 2 else "🥉 " if i == 3 else ""
-        ranking_text += f"{medal}{i}º - @{user_data['username']}: **{user_data['score']} pontos**\n"
+        username = user_data.get("username", f"user_{user_id}")
+        tamanho = user_data["TAMANHO DA TETA"]
+        ranking_text += f"{medal}{i}º - @{username}: **{tamanho} CM DE TETA**\n"
     return ranking_text
 
 # Comando /meupainel
@@ -77,13 +88,22 @@ def get_user_stats(user_id):
     user_data = data.get(str(user_id))
     if not user_data:
         return "ℹ️ USE /jogar PARA MEDIR O TAMANHO DESSA SUA TETA"
-    username = user_data["username"]
-    score = user_data["score"]
+    
+    username = user_data.get("username", f"user_{user_id}")
+    tamanho = user_data["TAMANHO DA TETA"]
+    total_plays = user_data["total_plays"]
+    last_play = user_data["last_play"]
+    
     last_play_date = datetime.fromisoformat(last_play).strftime("%d/%m/%Y %H:%M") if last_play else "Nunca"
     can_play = is_new_day(last_play)
     status = "HORA DE VER SE GANHA OU PERDE" if can_play else "OH NOJEIRA, TIRA A MÃO DO PEITO! Isso aqui é um grupo de família, volta amanhã!"
-    return (f"👤 **Tamanho do peito de @{username}**\n\n"
-            f"📊 Sua teta é de **{score} cm! Peituda metida**\n")
+    
+    message = (f"👤 **Tamanho do peito de @{username}**\n\n"
+               f"📊 Sua teta é de **{tamanho} CM, Peituda metida**\n"
+               f"🎯 Total de jogadas: **{total_plays}**\n"
+               f"🕒 Última jogada: **{last_play_date}**\n"
+               f"📅 Status: **{status}**")
+    return message
 
 # Processar mensagens
 def process_message(update):
@@ -94,9 +114,11 @@ def process_message(update):
     text = message.get("text", "")
     user_id = message["from"]["id"]
     username = message["from"].get("username", f"user_{user_id}")
+    
     if message["chat"]["type"] not in ["group", "supergroup"]:
         send_message(chat_id, "⚠️ Este bot funciona apenas em grupos!")
         return
+    
     if text.startswith("/jogar"):
         send_message(chat_id, handle_daily_play(user_id, username, chat_id))
     elif text.startswith("/ranking"):
@@ -120,28 +142,4 @@ def get_updates(offset=None):
         return {"ok": False, "result": []}
 
 def send_message(chat_id, text):
-    url = URL + "sendMessage"
-    params = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
-    try:
-        requests.post(url, params=params, timeout=5)
-    except:
-        pass
-
-# Loop principal
-def main():
-    print("🤖 Bot de Ranking iniciado...")
-    last_update_id = None
-    while True:
-        try:
-            updates = get_updates(last_update_id)
-            if updates.get("ok") and "result" in updates:
-                for update in updates["result"]:
-                    last_update_id = update["update_id"] + 1
-                    process_message(update)
-        except Exception as e:
-            print(f"Erro: {e}")
-            time.sleep(5)
-        time.sleep(1)
-
-if __name__ == "__main__":
-    main()
+    url = URL + "sen
