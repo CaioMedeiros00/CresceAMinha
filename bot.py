@@ -11,6 +11,8 @@ URL = f"https://api.telegram.org/bot{TOKEN}/"
 DATA_FILE = "user_data.json"
 
 # Inicializar dados
+
+# TESTE PARA VEZ SE TUDO FOI 
 def load_data():
     try:
         with open(DATA_FILE, 'r') as f:
