@@ -44,33 +44,28 @@ def handle_daily_play(user_id, username, chat_id):
     data = load_data()
     if str(user_id) not in data:
         data[str(user_id)] = {
-            "username": username,
-            "score": 0,
-            "last_play": None,
-            "total_plays": 0
+            "TAMANHO DA TETA": 0,
         }
     user_data = data[str(user_id)]
     if not is_new_day(user_data["last_play"]):
-        return "❌ Você já jogou hoje! Volte amanhã."
+        return "OH NOJEIRA, TIRA A MÃO DO PEITO! Isso aqui é um grupo de família, volta amanhã!"
     points = generate_daily_result()
-    user_data["score"] += points
-    user_data["last_play"] = datetime.now().isoformat()
-    user_data["total_plays"] += 1
+    user_data["TAMANHO DA TETA"] += points
     save_data(data)
     if points > 0:
-        message = f"🎉 Parabéns, @{username}! Você ganhou **+{points} pontos**!"
+        message = f"QUE TETÃO! @{username} VOCÊ GANHOU **+{points} CM DE TETA**!"
     else:
-        message = f"😞 Que pena, @{username}! Você perdeu **{points} pontos**."
-    message += f"\n📊 Seu saldo atual: **{user_data['score']} pontos**"
+        message = f"oh dó... @{username} VOCÊ PERDEU **{points} CM DE TETA**."
+    message += f"O TAMANHO DA SUA TETA É **{user_data['score']} CM, PEITUDA METIDA! **"
     return message
 
 # Comando /ranking
 def get_ranking(chat_id):
     data = load_data()
     if not data:
-        return "📊 Ranking vazio. Use /jogar para começar!"
+        return "Ranking vazio. Use /jogar para começar!"
     sorted_users = sorted(data.items(), key=lambda x: x[1]["score"], reverse=True)
-    ranking_text = "🏆 **RANKING DO DIA** 🏆\n\n"
+    ranking_text = " **RANKING DO DIA** \n\n"
     for i, (user_id, user_data) in enumerate(sorted_users[:10], 1):
         medal = "🥇 " if i == 1 else "🥈 " if i == 2 else "🥉 " if i == 3 else ""
         ranking_text += f"{medal}{i}º - @{user_data['username']}: **{user_data['score']} pontos**\n"
@@ -81,19 +76,14 @@ def get_user_stats(user_id):
     data = load_data()
     user_data = data.get(str(user_id))
     if not user_data:
-        return "ℹ️ Use /jogar para começar a participar!"
+        return "ℹ️ USE /jogar PARA MEDIR O TAMANHO DESSA SUA TETA"
     username = user_data["username"]
     score = user_data["score"]
-    total_plays = user_data["total_plays"]
-    last_play = user_data["last_play"]
     last_play_date = datetime.fromisoformat(last_play).strftime("%d/%m/%Y %H:%M") if last_play else "Nunca"
     can_play = is_new_day(last_play)
-    status = "✅ Pode jogar hoje!" if can_play else "❌ Já jogou hoje"
-    return (f"👤 **Painel de @{username}**\n\n"
-            f"📊 Pontuação: **{score} pontos**\n"
-            f"🎯 Total de jogadas: **{total_plays}**\n"
-            f"🕒 Última jogada: **{last_play_date}**\n"
-            f"📅 Status: **{status}**")
+    status = "HORA DE VER SE GANHA OU PERDE" if can_play else "OH NOJEIRA, TIRA A MÃO DO PEITO! Isso aqui é um grupo de família, volta amanhã!"
+    return (f"👤 **Tamanho do peito de @{username}**\n\n"
+            f"📊 Sua teta é de **{score} cm! Peituda metida**\n")
 
 # Processar mensagens
 def process_message(update):
