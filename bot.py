@@ -6,10 +6,14 @@ from datetime import datetime
 import os
 import logging
 
+# -------------------
 # Configuração de logs
+# -------------------
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Token do bot (via variável de ambiente no Railway)
+# -------------------
+# Token do bot
+# -------------------
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     logging.error("BOT_TOKEN não definido! Configure no Railway Settings → Variables")
@@ -45,16 +49,24 @@ def generate_daily_result():
 # -------------------
 # Comandos do bot
 # -------------------
-def handle_daily_play(user_id, username):
+def handle_daily_play(user_id, username, chat_id):
     data = load_data()
-    if str(user_id) not in data:
-        data[str(user_id)] = {
+    chat_key = str(chat_id)
+    user_key = str(user_id)
+
+    if chat_key not in data:
+        data[chat_key] = {}
+    group_data = data[chat_key]
+
+    if user_key not in group_data:
+        group_data[user_key] = {
             "username": username,
             "TAMANHO DA TETA": 0,
             "last_play": None,
             "total_plays": 0
         }
-    user_data = data[str(user_id)]
+
+    user_data = group_data[user_key]
 
     if not is_new_day(user_data["last_play"]):
         return "OH NOJEIRA, TIRA A MÃO DO PEITO! Isso aqui é um grupo de família, volta amanhã!"
@@ -69,44 +81,47 @@ def handle_daily_play(user_id, username):
         message = f"QUE TETÃO! @{username} VOCÊ GANHOU **+{points} CM DE TETA**!"
     else:
         message = f"Oh dó... @{username} VOCÊ PERDEU **{abs(points)} CM DE TETA**."
-    
+
     message += f"\nO TAMANHO DA SUA TETA É **{user_data['TAMANHO DA TETA']} CM, PEITUDA METIDA!**"
     return message
 
-def get_ranking():
+def get_ranking(chat_id):
     data = load_data()
-    if not data:
+    chat_key = str(chat_id)
+
+    if chat_key not in data or not data[chat_key]:
         return "Ranking vazio. Use /jogar para começar!"
 
-    sorted_users = sorted(data.items(), key=lambda x: x[1]["TAMANHO DA TETA"], reverse=True)
+    group_data = data[chat_key]
+    sorted_users = sorted(group_data.items(), key=lambda x: x[1]["TAMANHO DA TETA"], reverse=True)
+
     ranking_text = "**RANKING DO DIA**\n\n"
     for i, (user_id, user_data) in enumerate(sorted_users[:10], 1):
         medal = "🥇 " if i == 1 else "🥈 " if i == 2 else "🥉 " if i == 3 else ""
-        username = user_data.get("username", f"user_{user_id}")
-        tamanho = user_data["TAMANHO DA TETA"]
-        ranking_text += f"{medal}{i}º - @{username}: **{tamanho} CM DE TETA**\n"
+        ranking_text += f"{medal}{i}º - @{user_data['username']}: **{user_data['TAMANHO DA TETA']} CM DE TETA**\n"
     return ranking_text
 
-def get_user_stats(user_id):
+def get_user_stats(user_id, chat_id):
     data = load_data()
-    user_data = data.get(str(user_id))
-    if not user_data:
+    chat_key = str(chat_id)
+    user_key = str(user_id)
+
+    if chat_key not in data or user_key not in data[chat_key]:
         return "ℹ️ USE /jogar PARA MEDIR O TAMANHO DESSA SUA TETA"
-    
-    username = user_data.get("username", f"user_{user_id}")
+
+    user_data = data[chat_key][user_key]
+    username = user_data["username"]
     tamanho = user_data["TAMANHO DA TETA"]
     total_plays = user_data["total_plays"]
     last_play = user_data["last_play"]
     last_play_date = datetime.fromisoformat(last_play).strftime("%d/%m/%Y %H:%M") if last_play else "Nunca"
-    can_play = is_new_day(last_play)
-    status = "HORA DE VER SE GANHA OU PERDE" if can_play else "OH NOJEIRA, TIRA A MÃO DO PEITO! Isso aqui é um grupo de família, volta amanhã!"
+    status = "HORA DE VER SE GANHA OU PERDE" if is_new_day(last_play) else "OH NOJEIRA, TIRA A MÃO DO PEITO! Volte amanhã!"
 
-    message = (f"👤 **Tamanho do peito de @{username}**\n\n"
-               f"📊 Sua teta é de **{tamanho} CM, Peituda metida**\n"
-               f"🎯 Total de jogadas: **{total_plays}**\n"
-               f"🕒 Última jogada: **{last_play_date}**\n"
-               f"📅 Status: **{status}**")
-    return message
+    return (f"👤 **Tamanho do peito de @{username}**\n\n"
+            f"📊 Sua teta é de **{tamanho} CM!**\n"
+            f"🎯 Total de jogadas: **{total_plays}**\n"
+            f"🕒 Última jogada: **{last_play_date}**\n"
+            f"📅 Status: **{status}**")
 
 # -------------------
 # Funções Telegram
@@ -122,24 +137,25 @@ def send_message(chat_id, text):
 def process_message(update):
     if "message" not in update:
         return
+
     message = update["message"]
     chat_id = message["chat"]["id"]
     text = message.get("text", "")
     user_id = message["from"]["id"]
     username = message["from"].get("username", f"user_{user_id}")
 
-    logging.info(f"Recebido update de @{username}: {text}")
+    logging.info(f"Recebido update de @{username} no chat {chat_id}: {text}")
 
     if message["chat"]["type"] not in ["group", "supergroup"]:
         send_message(chat_id, "⚠️ Este bot funciona apenas em grupos!")
         return
 
     if text.startswith("/jogar"):
-        send_message(chat_id, handle_daily_play(user_id, username))
+        send_message(chat_id, handle_daily_play(user_id, username, chat_id))
     elif text.startswith("/ranking"):
-        send_message(chat_id, get_ranking())
+        send_message(chat_id, get_ranking(chat_id))
     elif text.startswith("/meupainel"):
-        send_message(chat_id, get_user_stats(user_id))
+        send_message(chat_id, get_user_stats(user_id, chat_id))
     elif text.startswith("/start") or text.startswith("/ajuda"):
         send_message(chat_id, "🎮 **BOT DE RANKING DIÁRIO** 🎮\n\n"
                               "/jogar - Jogar uma vez por dia\n"
