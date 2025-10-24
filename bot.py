@@ -5,6 +5,8 @@ import random
 from datetime import datetime
 import os
 import logging
+import psycopg2 
+import os
 
 # -------------------
 # Configuração de logs
@@ -192,3 +194,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+cursor = conn.cursor()
