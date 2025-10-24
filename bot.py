@@ -4,8 +4,7 @@ import random
 from datetime import datetime
 import os
 import logging
-import psycopg2
-from psycopg2 import OperationalError, InterfaceError
+import pg8000
 
 # -------------------
 # Configuração de logs
@@ -27,7 +26,7 @@ if not TOKEN:
 URL = f"https://api.telegram.org/bot{TOKEN}/"
 
 # -------------------
-# Conexão com PostgreSQL
+# Conexão com PostgreSQL usando pg8000
 # -------------------
 def get_db_connection():
     """Cria uma nova conexão com o banco de dados"""
@@ -37,12 +36,24 @@ def get_db_connection():
             logger.error("DATABASE_URL não definido!")
             return None
         
-        # Se a DATABASE_URL começar com postgres://, converte para postgresql://
+        # Parse da DATABASE_URL
+        # Formato: postgresql://username:password@host:port/database
         if DATABASE_URL.startswith('postgres://'):
             DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
-            
-        conn = psycopg2.connect(DATABASE_URL, sslmode='require')
-        logger.info("Conexão com PostgreSQL estabelecida")
+        
+        # Extrai componentes da URL
+        from urllib.parse import urlparse
+        url = urlparse(DATABASE_URL)
+        
+        conn = pg8000.connect(
+            host=url.hostname,
+            port=url.port or 5432,
+            user=url.username,
+            password=url.password,
+            database=url.path[1:]  # Remove a barra inicial
+        )
+        
+        logger.info("Conexão com PostgreSQL estabelecida via pg8000")
         return conn
     except Exception as e:
         logger.error(f"Erro ao conectar com PostgreSQL: {e}")
