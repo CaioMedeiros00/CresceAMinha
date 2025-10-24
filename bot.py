@@ -37,7 +37,6 @@ def get_db_connection():
             return None
         
         # Parse da DATABASE_URL
-        # Formato: postgresql://username:password@host:port/database
         if DATABASE_URL.startswith('postgres://'):
             DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
         
@@ -132,7 +131,7 @@ def execute_sql(query, params=None, fetch=False):
         if fetch:
             result = cur.fetchall()
         else:
-            result = None
+            result = True  # Retorna True para operações bem-sucedidas sem fetch
             
         conn.commit()
         cur.close()
@@ -146,7 +145,7 @@ def execute_sql(query, params=None, fetch=False):
         return None
 
 # -------------------
-# Comandos do bot
+# Comandos do bot - VERSÃO CORRIGIDA
 # -------------------
 def handle_daily_play(user_id, username, chat_id):
     # Primeiro, busca o usuário
@@ -159,14 +158,15 @@ def handle_daily_play(user_id, username, chat_id):
     if result is None:
         return "❌ Erro no banco de dados. Tente novamente mais tarde."
     
+    points = generate_daily_result()
+    
     if result:
+        # Usuário existe - verifica se já jogou hoje
         tamanho_teta, last_play, total_plays = result[0]
         
-        # Verifica se já jogou hoje
         if not is_new_day(last_play):
             return "OH NOJEIRA, TIRA A MÃO DO PEITO! Isso aqui é um grupo de família, volta amanhã!!!!"
         
-        points = generate_daily_result()
         novo_tamanho = tamanho_teta + points
         novo_total_plays = total_plays + 1
         
@@ -181,7 +181,6 @@ def handle_daily_play(user_id, username, chat_id):
         
     else:
         # Primeira jogada do usuário
-        points = generate_daily_result()
         novo_tamanho = points
         novo_total_plays = 1
         
@@ -192,9 +191,13 @@ def handle_daily_play(user_id, username, chat_id):
             (user_id, chat_id, username, novo_tamanho, novo_total_plays)
         )
     
-    if not success:
+    # DEBUG: Log para verificar o que está acontecendo
+    logger.info(f"User: {username}, Points: {points}, Success: {success}")
+    
+    if success is None:
         return "❌ Erro ao salvar os dados. Tente novamente!"
     
+    # Mensagem de sucesso
     if points > 0:
         message = f"QUE TETÃO! @{username} VOCÊ GANHOU **+{points} CM DE TETA**!"
     else:
@@ -279,7 +282,8 @@ def process_message(update):
 
     try:
         if text.startswith("/jogar"):
-            send_message(chat_id, handle_daily_play(user_id, username, chat_id))
+            response_text = handle_daily_play(user_id, username, chat_id)
+            send_message(chat_id, response_text)
         elif text.startswith("/ranking"):
             send_message(chat_id, get_ranking(chat_id))
         elif text.startswith("/meupainel"):
