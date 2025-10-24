@@ -5,8 +5,7 @@ import random
 from datetime import datetime
 import os
 import logging
-import psycopg2 
-import os
+import psycopg2
 
 # -------------------
 # Configuração de logs
@@ -22,26 +21,46 @@ if not TOKEN:
     exit(1)
 
 URL = f"https://api.telegram.org/bot{TOKEN}/"
-DATA_FILE = "user_data.json"
+
+# -------------------
+# Conexão com PostgreSQL
+# -------------------
+def get_db_connection():
+    DATABASE_URL = os.getenv("DATABASE_URL")
+    return psycopg2.connect(DATABASE_URL, sslmode='require')
+
+def init_db():
+    """Inicializa o banco de dados criando a tabela se não existir"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS player_tetas (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            chat_id BIGINT NOT NULL,
+            username VARCHAR(100),
+            tamanho_teta INTEGER DEFAULT 0,
+            last_play TIMESTAMP,
+            total_plays INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, chat_id)
+        )
+    ''')
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    logging.info("Banco de dados inicializado!")
 
 # -------------------
 # Funções auxiliares
 # -------------------
-def load_data():
-    try:
-        with open(DATA_FILE, 'r') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-
-def save_data(data):
-    with open(DATA_FILE, 'w') as f:
-        json.dump(data, f, indent=2)
-
 def is_new_day(last_play_time):
     if not last_play_time:
         return True
-    last_play = datetime.fromisoformat(last_play_time)
+    last_play = last_play_time if isinstance(last_play_time, datetime) else datetime.fromisoformat(last_play_time)
     now = datetime.now()
     return last_play.date() < now.date()
 
@@ -49,74 +68,113 @@ def generate_daily_result():
     return random.randint(1, 10) if random.random() < 0.7 else random.randint(-5, -1)
 
 # -------------------
-# Comandos do bot
+# Comandos do bot (AGORA COM POSTGRES)
 # -------------------
 def handle_daily_play(user_id, username, chat_id):
-    data = load_data()
-    chat_key = str(chat_id)
-    user_key = str(user_id)
-
-    if chat_key not in data:
-        data[chat_key] = {}
-    group_data = data[chat_key]
-
-    if user_key not in group_data:
-        group_data[user_key] = {
-            "username": username,
-            "TAMANHO DA TETA": 0,
-            "last_play": None,
-            "total_plays": 0
-        }
-
-    user_data = group_data[user_key]
-
-    if not is_new_day(user_data["last_play"]):
-        return "OH NOJEIRA, TIRA A MÃO DO PEITO! Isso aqui é um grupo de família, volta amanhã!!!!"
-
-    points = generate_daily_result()
-    user_data["TAMANHO DA TETA"] += points
-    user_data["last_play"] = datetime.now().isoformat()
-    user_data["total_plays"] += 1
-    save_data(data)
-
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Busca ou cria o usuário
+    cur.execute('''
+        SELECT tamanho_teta, last_play, total_plays 
+        FROM player_tetas 
+        WHERE user_id = %s AND chat_id = %s
+    ''', (user_id, chat_id))
+    
+    result = cur.fetchone()
+    
+    if result:
+        tamanho_teta, last_play, total_plays = result
+        
+        # Verifica se já jogou hoje
+        if not is_new_day(last_play):
+            cur.close()
+            conn.close()
+            return "OH NOJEIRA, TIRA A MÃO DO PEITO! Isso aqui é um grupo de família, volta amanhã!!!!"
+        
+        points = generate_daily_result()
+        novo_tamanho = tamanho_teta + points
+        novo_total_plays = total_plays + 1
+        
+        # Atualiza o registro
+        cur.execute('''
+            UPDATE player_tetas 
+            SET tamanho_teta = %s, last_play = CURRENT_TIMESTAMP, total_plays = %s, 
+                username = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s AND chat_id = %s
+        ''', (novo_tamanho, novo_total_plays, username, user_id, chat_id))
+        
+    else:
+        # Primeira jogada do usuário
+        points = generate_daily_result()
+        novo_tamanho = points
+        novo_total_plays = 1
+        
+        # Insere novo registro
+        cur.execute('''
+            INSERT INTO player_tetas (user_id, chat_id, username, tamanho_teta, last_play, total_plays)
+            VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, %s)
+        ''', (user_id, chat_id, username, novo_tamanho, novo_total_plays))
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    
     if points > 0:
         message = f"QUE TETÃO! @{username} VOCÊ GANHOU **+{points} CM DE TETA**!"
     else:
         message = f"Oh dó... @{username} VOCÊ PERDEU **{abs(points)} CM DE TETA**."
 
-    message += f"\nO TAMANHO DA SUA TETA É **{user_data['TAMANHO DA TETA']} CM, PEITUDA METIDA!**"
+    message += f"\nO TAMANHO DA SUA TETA É **{novo_tamanho} CM, PEITUDA METIDA!**"
     return message
 
 def get_ranking(chat_id):
-    data = load_data()
-    chat_key = str(chat_id)
-
-    if chat_key not in data or not data[chat_key]:
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute('''
+        SELECT username, tamanho_teta 
+        FROM player_tetas 
+        WHERE chat_id = %s 
+        ORDER BY tamanho_teta DESC 
+        LIMIT 10
+    ''', (chat_id,))
+    
+    ranking = cur.fetchall()
+    cur.close()
+    conn.close()
+    
+    if not ranking:
         return "Ranking vazio. Use /jogar para começar!"
 
-    group_data = data[chat_key]
-    sorted_users = sorted(group_data.items(), key=lambda x: x[1]["TAMANHO DA TETA"], reverse=True)
-
     ranking_text = "**RANKING DO DIA**\n\n"
-    for i, (user_id, user_data) in enumerate(sorted_users[:10], 1):
+    for i, (username, tamanho_teta) in enumerate(ranking, 1):
         medal = "🥇 " if i == 1 else "🥈 " if i == 2 else "🥉 " if i == 3 else ""
-        ranking_text += f"{medal}{i}º - @{user_data['username']}: **{user_data['TAMANHO DA TETA']} CM DE TETA**\n"
+        username_display = f"@{username}" if username else "Usuário Anônimo"
+        ranking_text += f"{medal}{i}º - {username_display}: **{tamanho_teta} CM DE TETA**\n"
+    
     return ranking_text
 
 def get_user_stats(user_id, chat_id):
-    data = load_data()
-    chat_key = str(chat_id)
-    user_key = str(user_id)
-
-    if chat_key not in data or user_key not in data[chat_key]:
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute('''
+        SELECT username, tamanho_teta, total_plays, last_play 
+        FROM player_tetas 
+        WHERE user_id = %s AND chat_id = %s
+    ''', (user_id, chat_id))
+    
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+    
+    if not result:
         return "ℹ️ USE /jogar PARA MEDIR O TAMANHO DESSA SUA TETA"
 
-    user_data = data[chat_key][user_key]
-    username = user_data["username"]
-    tamanho = user_data["TAMANHO DA TETA"]
-    total_plays = user_data["total_plays"]
-    last_play = user_data["last_play"]
-    last_play_date = datetime.fromisoformat(last_play).strftime("%d/%m/%Y %H:%M") if last_play else "Nunca"
+    username, tamanho, total_plays, last_play = result
+    
+    last_play_date = last_play.strftime("%d/%m/%Y %H:%M") if last_play else "Nunca"
     status = "HORA DE VER SE GANHA OU PERDE" if is_new_day(last_play) else "OH NOJEIRA, TIRA A MÃO DO PEITO! Volte amanhã!"
 
     return (f"👤 **Tamanho do peito de @{username}**\n\n"
@@ -178,7 +236,10 @@ def get_updates(offset=None):
 # Loop principal
 # -------------------
 def main():
+    # Inicializa o banco de dados
+    init_db()
     logging.info("🤖 Bot de Ranking iniciado...")
+    
     last_update_id = None
     while True:
         try:
@@ -194,6 +255,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-conn = psycopg2.connect(os.getenv("DATABASE_URL"))
-cursor = conn.cursor()
