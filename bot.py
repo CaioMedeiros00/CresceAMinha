@@ -71,7 +71,7 @@ def handle_daily_play(user_id, username, chat_id):
     user_data = group_data[user_key]
 
     if not is_new_day(user_data["last_play"]):
-        return "OH NOJEIRA, TIRA A MÃO DO PEITO! Isso aqui é um grupo de família, volta amanhã!"
+        return "OH NOJEIRA, TIRA A MÃO DO PEITO! Isso aqui é um grupo de família, volta amanhã!!!!"
 
     points = generate_daily_result()
     user_data["TAMANHO DA TETA"] += points
