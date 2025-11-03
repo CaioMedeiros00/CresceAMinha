@@ -11,6 +11,8 @@ from datetime import datetime
 import os
 import logging
 import pg8000
+from urllib.parse import urlparse
+import ssl
 
 # -------------------
 # Configuração de logs
@@ -38,6 +40,42 @@ def get_db_connection():
     Retorna None em caso de erro.
     """
     try:
+        # Suporta DATABASE_URL (Railway) ou variáveis individuais
+        database_url = os.environ.get("DATABASE_URL") or os.environ.get("DATABASE_URL_RO")
+        if database_url:
+            # Ex: postgres://user:pass@host:port/dbname
+            parsed = urlparse(database_url)
+            host = parsed.hostname
+            user = parsed.username
+            password = parsed.password
+            database = parsed.path.lstrip("/")
+            port = parsed.port or 5432
+
+            # Railway normalmente exige SSL
+            try:
+                ssl_ctx = ssl.create_default_context()
+                conn = pg8000.connect(
+                    host=host,
+                    user=user,
+                    password=password,
+                    database=database,
+                    port=port,
+                    ssl_context=ssl_ctx,
+                )
+            except TypeError:
+                # Versões antigas de pg8000 podem aceitar 'ssl' booleano
+                conn = pg8000.connect(
+                    host=host,
+                    user=user,
+                    password=password,
+                    database=database,
+                    port=port,
+                    ssl=True,
+                )
+
+            return conn
+
+        # Fallback para variáveis separadas
         host = os.environ.get("PGHOST", "localhost")
         user = os.environ.get("PGUSER", os.environ.get("DB_USER"))
         password = os.environ.get("PGPASSWORD", os.environ.get("DB_PASS"))
