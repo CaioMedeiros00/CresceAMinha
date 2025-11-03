@@ -5,104 +5,77 @@ from datetime import datetime
 import os
 import logging
 import pg8000
-from urllib.parse import urlparse
-import ssl
 
 # -------------------
 # Configuração de logs
 # -------------------
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO, 
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 # -------------------
-# Config (env) - VERIFIQUE SE O TOKEN ESTÁ CONFIGURADO!
+# Token do bot
 # -------------------
-TOKEN = os.environ.get("TELEGRAM_TOKEN") or os.environ.get("BOT_TOKEN")
+TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
-    logger.error("❌ NENHUM TOKEN ENCONTRADO! Configure TELEGRAM_TOKEN ou BOT_TOKEN")
+    logger.error("BOT_TOKEN não definido!")
     exit(1)
 
 URL = f"https://api.telegram.org/bot{TOKEN}/"
-logger.info(f"Token configurado, URL base: {URL[:50]}...")
 
+# -------------------
+# Conexão com PostgreSQL usando pg8000
+# -------------------
 def get_db_connection():
-    """Cria e retorna uma conexão com o banco de dados Postgres"""
+    """Cria uma nova conexão com o banco de dados"""
     try:
-        database_url = os.environ.get("DATABASE_URL") or os.environ.get("DATABASE_URL_RO")
+        DATABASE_URL = os.getenv("DATABASE_URL")
+        if not DATABASE_URL:
+            logger.error("DATABASE_URL não definido!")
+            return None
         
-        if database_url:
-            parsed = urlparse(database_url)
-            host = parsed.hostname
-            user = parsed.username
-            password = parsed.password
-            database = parsed.path.lstrip("/")
-            port = parsed.port or 5432
-
-            # Tenta conectar com SSL para Railway
-            try:
-                ssl_ctx = ssl.create_default_context()
-                conn = pg8000.connect(
-                    host=host,
-                    user=user,
-                    password=password,
-                    database=database,
-                    port=port,
-                    ssl_context=ssl_ctx,
-                )
-            except Exception as e:
-                logger.warning(f"Tentando conexão SSL alternativa: {e}")
-                conn = pg8000.connect(
-                    host=host,
-                    user=user,
-                    password=password,
-                    database=database,
-                    port=port,
-                    ssl=True,
-                )
-            return conn
-
-        # Fallback para variáveis individuais
-        host = os.environ.get("PGHOST")
-        user = os.environ.get("PGUSER")
-        password = os.environ.get("PGPASSWORD")
-        database = os.environ.get("PGDATABASE")
-        port = int(os.environ.get("PGPORT", "5432"))
-
-        if all([host, user, password, database]):
-            return pg8000.connect(
-                host=host,
-                user=user,
-                password=password,
-                database=database,
-                port=port,
-            )
-
-        logger.error("❌ Nenhuma configuração de banco de dados encontrada")
-        return None
-
+        # Parse da DATABASE_URL
+        if DATABASE_URL.startswith('postgres://'):
+            DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+        
+        # Extrai componentes da URL
+        from urllib.parse import urlparse
+        url = urlparse(DATABASE_URL)
+        
+        conn = pg8000.connect(
+            host=url.hostname,
+            port=url.port or 5432,
+            user=url.username,
+            password=url.password,
+            database=url.path[1:]  # Remove a barra inicial
+        )
+        
+        logger.info("Conexão com PostgreSQL estabelecida via pg8000")
+        return conn
     except Exception as e:
-        logger.error(f"❌ Erro na conexão com o banco: {e}")
+        logger.error(f"Erro ao conectar com PostgreSQL: {e}")
         return None
 
-def init_db(retries: int = 3):
-    """Garante que a tabela exista"""
-    for attempt in range(1, retries + 1):
-        conn = None
-        try:
-            conn = get_db_connection()
-            if conn is None:
-                raise Exception("Falha ao conectar com o banco")
+def init_db():
+    """Inicializa o banco de dados criando a tabela se não existir"""
+    max_retries = 3
+    for attempt in range(max_retries):
+        conn = get_db_connection()
+        if conn is None:
+            logger.error(f"Tentativa {attempt + 1} de {max_retries} falhou")
+            time.sleep(2)
+            continue
             
+        try:
             cur = conn.cursor()
             cur.execute('''
                 CREATE TABLE IF NOT EXISTS player_tetas (
                     id SERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
                     chat_id BIGINT NOT NULL,
-                    username TEXT,
+                    username VARCHAR(100),
                     tamanho_teta INTEGER DEFAULT 0,
                     last_play TIMESTAMP,
                     total_plays INTEGER DEFAULT 0,
@@ -112,22 +85,23 @@ def init_db(retries: int = 3):
                 )
             ''')
             conn.commit()
-            logger.info("✅ Tabela player_tetas verificada/criada")
+            cur.close()
+            conn.close()
+            logger.info("Tabela player_tetas verificada/criada com sucesso")
             return True
-            
         except Exception as e:
-            logger.error(f"❌ Erro ao inicializar banco (tentativa {attempt}): {e}")
+            logger.error(f"Erro ao inicializar banco (tentativa {attempt + 1}): {e}")
             if conn:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
+                conn.close()
             time.sleep(2)
     
+    logger.error("Falha ao inicializar banco de dados após todas as tentativas")
     return False
 
+# -------------------
+# Funções auxiliares
+# -------------------
 def is_new_day(last_play_time):
-    """Verifica se já passou um dia desde a última jogada"""
     if not last_play_time:
         return True
     try:
@@ -135,19 +109,19 @@ def is_new_day(last_play_time):
             last_play = datetime.fromisoformat(last_play_time.replace('Z', '+00:00'))
         else:
             last_play = last_play_time
-        return last_play.date() < datetime.now().date()
+        now = datetime.now()
+        return last_play.date() < now.date()
     except Exception as e:
         logger.error(f"Erro em is_new_day: {e}")
         return True
 
 def generate_daily_result():
-    """Gera resultado diário: 70% chance positivo, 30% negativo"""
     return random.randint(1, 10) if random.random() < 0.7 else random.randint(-5, -1)
 
 def execute_sql(query, params=None, fetch=False):
-    """Executa query SQL com tratamento de erro"""
+    """Executa uma query SQL com tratamento de erros"""
     conn = get_db_connection()
-    if not conn:
+    if conn is None:
         return None
     
     try:
@@ -157,24 +131,24 @@ def execute_sql(query, params=None, fetch=False):
         if fetch:
             result = cur.fetchall()
         else:
-            result = True
+            result = True  # Retorna True para operações bem-sucedidas sem fetch
             
         conn.commit()
+        cur.close()
+        conn.close()
         return result
         
     except Exception as e:
-        logger.error(f"❌ Erro SQL: {e} - Query: {query}")
+        logger.error(f"Erro SQL: {e} - Query: {query} - Params: {params}")
+        if conn:
+            conn.close()
         return None
-    finally:
-        try:
-            if conn:
-                conn.close()
-        except Exception:
-            pass
 
-# --- COMANDOS DO BOT ---
+# -------------------
+# Comandos do bot - VERSÃO CORRIGIDA
+# -------------------
 def handle_daily_play(user_id, username, chat_id):
-    """Processa a jogada diária do usuário"""
+    # Primeiro, busca o usuário
     result = execute_sql(
         'SELECT tamanho_teta, last_play, total_plays FROM player_tetas WHERE user_id = %s AND chat_id = %s',
         (user_id, chat_id),
@@ -187,7 +161,7 @@ def handle_daily_play(user_id, username, chat_id):
     points = generate_daily_result()
     
     if result:
-        # Usuário existe
+        # Usuário existe - verifica se já jogou hoje
         tamanho_teta, last_play, total_plays = result[0]
         
         if not is_new_day(last_play):
@@ -196,6 +170,7 @@ def handle_daily_play(user_id, username, chat_id):
         novo_tamanho = tamanho_teta + points
         novo_total_plays = total_plays + 1
         
+        # Atualiza o registro
         success = execute_sql(
             '''UPDATE player_tetas 
                SET tamanho_teta = %s, last_play = CURRENT_TIMESTAMP, total_plays = %s, 
@@ -203,30 +178,35 @@ def handle_daily_play(user_id, username, chat_id):
                WHERE user_id = %s AND chat_id = %s''',
             (novo_tamanho, novo_total_plays, username, user_id, chat_id)
         )
+        
     else:
-        # Novo usuário
+        # Primeira jogada do usuário
         novo_tamanho = points
         novo_total_plays = 1
         
+        # Insere novo registro
         success = execute_sql(
             '''INSERT INTO player_tetas (user_id, chat_id, username, tamanho_teta, last_play, total_plays)
                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, %s)''',
             (user_id, chat_id, username, novo_tamanho, novo_total_plays)
         )
     
-    if not success:
+    # DEBUG: Log para verificar o que está acontecendo
+    logger.info(f"User: {username}, Points: {points}, Success: {success}")
+    
+    if success is None:
         return "❌ Erro ao salvar os dados. Tente novamente!"
     
+    # Mensagem de sucesso
     if points > 0:
         message = f"QUE TETÃO! @{username} VOCÊ GANHOU **+{points} CM DE TETA**!"
     else:
         message = f"Oh dó... @{username} VOCÊ PERDEU **{abs(points)} CM DE TETA**."
-    
+
     message += f"\nO TAMANHO DA SUA TETA É **{novo_tamanho} CM, PEITUDA METIDA!**"
     return message
 
 def get_ranking(chat_id):
-    """Retorna o ranking do chat"""
     result = execute_sql(
         'SELECT username, tamanho_teta FROM player_tetas WHERE chat_id = %s ORDER BY tamanho_teta DESC LIMIT 10',
         (chat_id,),
@@ -238,143 +218,137 @@ def get_ranking(chat_id):
     
     if not result:
         return "Ranking vazio. Use /jogar para começar!"
-    
+
     ranking_text = "**RANKING DO DIA**\n\n"
     for i, (username, tamanho_teta) in enumerate(result, 1):
-        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}º"
+        medal = "🥇 " if i == 1 else "🥈 " if i == 2 else "🥉 " if i == 3 else ""
         username_display = f"@{username}" if username else "Usuário Anônimo"
-        ranking_text += f"{medal} - {username_display}: **{tamanho_teta} CM**\n"
+        ranking_text += f"{medal}{i}º - {username_display}: **{tamanho_teta} CM DE TETA**\n"
     
     return ranking_text
 
 def get_user_stats(user_id, chat_id):
-    """Retorna estatísticas do usuário"""
     result = execute_sql(
         'SELECT username, tamanho_teta, total_plays, last_play FROM player_tetas WHERE user_id = %s AND chat_id = %s',
         (user_id, chat_id),
         fetch=True
     )
     
+    if result is None:
+        return "❌ Erro ao buscar estatísticas."
+    
     if not result:
         return "ℹ️ USE /jogar PARA MEDIR O TAMANHO DESSA SUA TETA"
-    
+
     username, tamanho, total_plays, last_play = result[0]
-    last_play_date = last_play.strftime("%d/%m/%Y %H:%M") if last_play else "Nunca"
-    status = "HORA DE VER SE GANHA OU PERDE" if is_new_day(last_play) else "JÁ JOGOU HOJE - Volte amanhã!"
     
-    return (f"👤 **Estatísticas de @{username}**\n\n"
-            f"📊 Tamanho da teta: **{tamanho} CM**\n"
+    last_play_date = last_play.strftime("%d/%m/%Y %H:%M") if last_play else "Nunca"
+    status = "HORA DE VER SE GANHA OU PERDE" if is_new_day(last_play) else "OH NOJEIRA, TIRA A MÃO DO PEITO! Volte amanhã!"
+
+    return (f"👤 **Tamanho do peito de @{username}**\n\n"
+            f"📊 Sua teta é de **{tamanho} CM!**\n"
             f"🎯 Total de jogadas: **{total_plays}**\n"
             f"🕒 Última jogada: **{last_play_date}**\n"
             f"📅 Status: **{status}**")
 
+# -------------------
+# Funções Telegram
+# -------------------
 def send_message(chat_id, text):
-    """Envia mensagem via Telegram API"""
     try:
         url = URL + "sendMessage"
-        params = {
-            "chat_id": chat_id, 
-            "text": text, 
-            "parse_mode": "Markdown"
-        }
-        response = requests.post(url, json=params, timeout=10)
-        
+        params = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+        response = requests.post(url, params=params, timeout=10)
         if response.status_code != 200:
-            logger.error(f"❌ Erro ao enviar mensagem: {response.status_code} - {response.text}")
-            
+            logger.error(f"Erro ao enviar mensagem: {response.status_code} - {response.text}")
     except Exception as e:
-        logger.error(f"❌ Erro send_message: {e}")
+        logger.error(f"Erro ao enviar mensagem: {e}")
 
 def process_message(update):
-    """Processa uma mensagem recebida"""
     if "message" not in update:
         return
-    
+
     message = update["message"]
     chat_id = message["chat"]["id"]
-    text = message.get("text", "").strip()
+    text = message.get("text", "")
     user_id = message["from"]["id"]
     username = message["from"].get("username", f"user_{user_id}")
-    
-    logger.info(f"📨 Mensagem de @{username}: {text}")
-    
-    # Verifica se é grupo
+
+    logger.info(f"Recebido update de @{username} no chat {chat_id}: {text}")
+
     if message["chat"]["type"] not in ["group", "supergroup"]:
         send_message(chat_id, "⚠️ Este bot funciona apenas em grupos!")
         return
-    
+
     try:
         if text.startswith("/jogar"):
-            response = handle_daily_play(user_id, username, chat_id)
-            send_message(chat_id, response)
-            
+            response_text = handle_daily_play(user_id, username, chat_id)
+            send_message(chat_id, response_text)
         elif text.startswith("/ranking"):
-            response = get_ranking(chat_id)
-            send_message(chat_id, response)
-            
+            send_message(chat_id, get_ranking(chat_id))
         elif text.startswith("/meupainel"):
-            response = get_user_stats(user_id, chat_id)
-            send_message(chat_id, response)
-            
+            send_message(chat_id, get_user_stats(user_id, chat_id))
         elif text.startswith("/start") or text.startswith("/ajuda"):
-            send_message(chat_id,
+            send_message(chat_id, 
                 "🎮 **BOT DE RANKING DIÁRIO** 🎮\n\n"
                 "/jogar - Jogar uma vez por dia\n"
                 "/ranking - Ver o ranking\n"
                 "/meupainel - Ver suas estatísticas"
             )
-            
     except Exception as e:
-        logger.error(f"❌ Erro process_message: {e}")
-        send_message(chat_id, "❌ Erro interno. Tente novamente.")
+        logger.error(f"Erro ao processar mensagem: {e}")
+        send_message(chat_id, "❌ Ocorreu um erro interno. Tente novamente mais tarde.")
 
 def get_updates(offset=None):
-    """Busca updates do Telegram"""
+    url = URL + "getUpdates"
+    params = {"timeout": 100, "offset": offset}
     try:
-        url = URL + "getUpdates"
-        params = {"timeout": 100, "offset": offset}
         response = requests.get(url, params=params, timeout=15)
         return response.json()
     except Exception as e:
-        logger.error(f"❌ Erro get_updates: {e}")
+        logger.error(f"Erro get_updates: {e}")
         return {"ok": False, "result": []}
 
+# -------------------
+# Loop principal
+# -------------------
 def main():
-    """Função principal"""
-    logger.info("🚀 Iniciando bot...")
+    logger.info("Iniciando bot...")
     
+    # Inicializa o banco de dados
     if not init_db():
-        logger.error("❌ Falha ao inicializar banco de dados")
+        logger.error("Não foi possível inicializar o banco de dados. Encerrando.")
         return
     
-    logger.info("✅ Bot iniciado com sucesso!")
+    logger.info("🤖 Bot de Ranking iniciado com sucesso!")
     
     last_update_id = None
     error_count = 0
+    max_errors = 5
     
     while True:
         try:
             updates = get_updates(last_update_id)
-            
             if updates.get("ok"):
                 for update in updates["result"]:
                     last_update_id = update["update_id"] + 1
                     process_message(update)
-                error_count = 0
+                error_count = 0  # Reset error count on success
             else:
+                logger.warning("Resposta não OK do Telegram API")
                 error_count += 1
-                logger.warning(f"⚠️ Resposta não-OK da API (erro {error_count}/5)")
                 
         except Exception as e:
+            logger.error(f"Erro no loop principal: {e}")
             error_count += 1
-            logger.error(f"❌ Erro no loop principal: {e}")
-        
-        # Pausa em caso de muitos erros
-        if error_count >= 5:
-            logger.error("⏸️ Muitos erros, aguardando 30 segundos...")
+            time.sleep(5)
+            
+        # Se muitos erros consecutivos, espera mais tempo
+        if error_count >= max_errors:
+            logger.error("Muitos erros consecutivos. Esperando 30 segundos...")
             time.sleep(30)
             error_count = 0
-        
+            
         time.sleep(1)
 
 if __name__ == "__main__":
