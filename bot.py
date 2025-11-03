@@ -16,68 +16,50 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # -------------------
-# Token do bot
 # -------------------
-TOKEN = os.getenv("BOT_TOKEN")
-if not TOKEN:
-    logger.error("BOT_TOKEN não definido!")
-    exit(1)
-
-URL = f"https://api.telegram.org/bot{TOKEN}/"
-
+# Loop principal
 # -------------------
-# Conexão com PostgreSQL usando pg8000
-# -------------------
-def get_db_connection():
-    """Cria uma nova conexão com o banco de dados"""
-    try:
-        DATABASE_URL = os.getenv("DATABASE_URL")
-        if not DATABASE_URL:
-            logger.error("DATABASE_URL não definido!")
-            return None
-        
-        # Parse da DATABASE_URL
-        if DATABASE_URL.startswith('postgres://'):
-            DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
-        
-        # Extrai componentes da URL
-        from urllib.parse import urlparse
-        url = urlparse(DATABASE_URL)
-        
-        conn = pg8000.connect(
-            host=url.hostname,
-            port=url.port or 5432,
-            user=url.username,
-            password=url.password,
-            database=url.path[1:]  # Remove a barra inicial
-        )
-        
-        logger.info("Conexão com PostgreSQL estabelecida via pg8000")
-        return conn
-    except Exception as e:
-        logger.error(f"Erro ao conectar com PostgreSQL: {e}")
-        return None
+def main():
+    logger.info("Iniciando bot...")
 
-def init_db():
-    """Inicializa o banco de dados criando a tabela se não existir"""
-    max_retries = 3
-    for attempt in range(max_retries):
-        conn = get_db_connection()
-        if conn is None:
-            logger.error(f"Tentativa {attempt + 1} de {max_retries} falhou")
-            time.sleep(2)
-            continue
-            
+    # Inicializa o banco de dados
+    if not init_db():
+        logger.error("Não foi possível inicializar o banco de dados. Encerrando.")
+        return
+
+    logger.info("🤖 Bot de Ranking iniciado com sucesso!")
+
+    last_update_id = None
+    error_count = 0
+    max_errors = 5
+
+    while True:
         try:
-            cur = conn.cursor()
-            cur.execute('''
-                CREATE TABLE IF NOT EXISTS player_tetas (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT NOT NULL,
-                    chat_id BIGINT NOT NULL,
-                    username VARCHAR(100),
-                    tamanho_teta INTEGER DEFAULT 0,
-                    last_play TIMESTAMP,
+            updates = get_updates(last_update_id)
+            if updates.get("ok"):
+                for update in updates["result"]:
+                    last_update_id = update["update_id"] + 1
+                    process_message(update)
+                error_count = 0  # Reset error count on success
+            else:
+                logger.warning("Resposta não OK do Telegram API")
+                error_count += 1
+
+        except Exception as e:
+            logger.error(f"Erro no loop principal: {e}")
+            error_count += 1
+            time.sleep(5)
+
+        # Se muitos erros consecutivos, espera mais tempo
+        if error_count >= max_errors:
+            logger.error("Muitos erros consecutivos. Esperando 30 segundos...")
+            time.sleep(30)
+            error_count = 0
+
+        time.sleep(1)
+
+if __name__ == "__main__":
+    main()
                     total_plays INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -309,11 +291,21 @@ def get_updates(offset=None):
         logger.error(f"Erro get_updates: {e}")
         return {"ok": False, "result": []}
 
+<<<<<<< HEAD
 
 def main():
     logger.info("Iniciando bot...")
     
     
+=======
+# -------------------
+# Loop principal
+# -------------------
+def main():
+    logger.info("Iniciando bot...")
+    
+    # Inicializa o banco de dados
+>>>>>>> 8a154d144682fbcd5d428671de821f656ff45ab5
     if not init_db():
         logger.error("Não foi possível inicializar o banco de dados. Encerrando.")
         return
@@ -331,7 +323,11 @@ def main():
                 for update in updates["result"]:
                     last_update_id = update["update_id"] + 1
                     process_message(update)
+<<<<<<< HEAD
                 error_count = 0  
+=======
+                error_count = 0  # Reset error count on success
+>>>>>>> 8a154d144682fbcd5d428671de821f656ff45ab5
             else:
                 logger.warning("Resposta não OK do Telegram API")
                 error_count += 1
@@ -341,7 +337,11 @@ def main():
             error_count += 1
             time.sleep(5)
             
+<<<<<<< HEAD
         
+=======
+        # Se muitos erros consecutivos, espera mais tempo
+>>>>>>> 8a154d144682fbcd5d428671de821f656ff45ab5
         if error_count >= max_errors:
             logger.error("Muitos erros consecutivos. Esperando 30 segundos...")
             time.sleep(30)
