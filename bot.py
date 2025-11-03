@@ -309,13 +309,11 @@ def get_updates(offset=None):
         logger.error(f"Erro get_updates: {e}")
         return {"ok": False, "result": []}
 
-# -------------------
-# Loop principal
-# -------------------
+
 def main():
     logger.info("Iniciando bot...")
     
-    # Inicializa o banco de dados
+    
     if not init_db():
         logger.error("Não foi possível inicializar o banco de dados. Encerrando.")
         return
@@ -333,7 +331,7 @@ def main():
                 for update in updates["result"]:
                     last_update_id = update["update_id"] + 1
                     process_message(update)
-                error_count = 0  # Reset error count on success
+                error_count = 0  
             else:
                 logger.warning("Resposta não OK do Telegram API")
                 error_count += 1
@@ -343,7 +341,7 @@ def main():
             error_count += 1
             time.sleep(5)
             
-        # Se muitos erros consecutivos, espera mais tempo
+        
         if error_count >= max_errors:
             logger.error("Muitos erros consecutivos. Esperando 30 segundos...")
             time.sleep(30)
