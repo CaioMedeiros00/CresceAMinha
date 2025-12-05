@@ -225,10 +225,9 @@ def get_user_stats(user_id, chat_id):
             f"📅 Status: **{status}**")
 
 # -------------------
-# Função de doar teta
+# Doar teta
 # -------------------
 def donate_teta(donor_id, target_username, chat_id, amount, reply_user_id=None):
-    # Determina target_id
     target_id = None
     if target_username:
         res = execute_sql(
@@ -259,6 +258,65 @@ def donate_teta(donor_id, target_username, chat_id, amount, reply_user_id=None):
     execute_sql('UPDATE player_tetas SET tamanho_teta=tamanho_teta+%s WHERE user_id=%s AND chat_id=%s',
                 (amount, target_id, chat_id))
     return f"🎁 Doação concluída! {amount} CM de teta foram doados."
+
+# -------------------
+# Duelo
+# -------------------
+def start_duel(challenger_id, target_username, chat_id):
+    target_data = execute_sql(
+        'SELECT user_id FROM player_tetas WHERE username=%s AND chat_id=%s',
+        (target_username, chat_id), fetch=True
+    )
+    if not target_data:
+        return "❌ Jogador não encontrado!"
+    defender_id = target_data[0][0]
+    if defender_id == challenger_id:
+        return "❌ Não pode duelar consigo mesmo!"
+    # Cria duelo pendente
+    execute_sql(
+        'INSERT INTO duelos (challenger_id, defender_id) VALUES (%s,%s)',
+        (challenger_id, defender_id)
+    )
+    return f"⚔️ Duelo iniciado contra @{target_username}! Ele precisa aceitar com /aceitar"
+
+def accept_duel(user_id, chat_id):
+    res = execute_sql(
+        'SELECT id, challenger_id, defender_id FROM duelos WHERE defender_id=%s AND status=%s ORDER BY created_at ASC LIMIT 1',
+        (user_id, 'pendente'), fetch=True
+    )
+    if not res:
+        return "❌ Nenhum duelo pendente!"
+    duel_id, challenger_id, defender_id = res[0]
+
+    challenger_data = execute_sql(
+        'SELECT username FROM player_tetas WHERE user_id=%s AND chat_id=%s',
+        (challenger_id, chat_id), fetch=True
+    )
+    defender_data = execute_sql(
+        'SELECT username FROM player_tetas WHERE user_id=%s AND chat_id=%s',
+        (defender_id, chat_id), fetch=True
+    )
+    if not challenger_data or not defender_data:
+        return "❌ Um dos jogadores não está registrado!"
+
+    challenger_name = challenger_data[0][0]
+    defender_name = defender_data[0][0]
+
+    winner_id, loser_id = random.choice([(challenger_id, defender_id), (defender_id, challenger_id)])
+    winner_name = challenger_name if winner_id == challenger_id else defender_name
+    loser_name = defender_name if loser_id == defender_id else challenger_name
+
+    gain = random.randint(5, 15)
+    loss = random.randint(1, 10)
+    execute_sql('UPDATE player_tetas SET tamanho_teta=tamanho_teta+%s WHERE user_id=%s AND chat_id=%s',
+                (gain, winner_id, chat_id))
+    execute_sql('UPDATE player_tetas SET tamanho_teta=GREATEST(tamanho_teta-%s,0) WHERE user_id=%s AND chat_id=%s',
+                (loss, loser_id, chat_id))
+    execute_sql('UPDATE duelos SET status=%s WHERE id=%s', ('concluido', duel_id))
+
+    return (f"🏆 @{winner_name} venceu o duelo contra @{loser_name}!\n"
+            f"🎉 Ganhou +{gain} CM de teta!\n"
+            f"😢 @{loser_name} perdeu -{loss} CM de teta.")
 
 # -------------------
 # Funções Telegram
@@ -304,12 +362,23 @@ def process_message(update):
                 send_message(chat_id, "❌ Valor inválido.")
                 return
             send_message(chat_id, donate_teta(user_id, target, chat_id, amount, reply_user_id))
+        elif text.startswith("/duelar") or text.startswith("/duelo"):
+            parts = text.split()
+            if len(parts) < 2 or not parts[1].startswith("@"):
+                send_message(chat_id, "❌ Use /duelar @usuario")
+            else:
+                target_username = parts[1][1:]
+                send_message(chat_id, start_duel(user_id, target_username, chat_id))
+        elif text.startswith("/aceitar"):
+            send_message(chat_id, accept_duel(user_id, chat_id))
         elif text.startswith("/start") or text.startswith("/ajuda"):
             send_message(chat_id, "🎮 **BOT DE RANKING DIÁRIO** 🎮\n\n"
                                  "/jogar - Jogar uma vez por dia\n"
                                  "/ranking - Ver o ranking\n"
                                  "/meupainel - Ver suas estatísticas\n"
-                                 "/doar @usuario valor - Doar teta")
+                                 "/doar @usuario valor - Doar teta\n"
+                                 "/duelar @usuario - Iniciar duelo\n"
+                                 "/aceitar - Aceitar duelo pendente")
     except Exception as e:
         logger.error(f"Erro ao processar mensagem: {e}")
         send_message(chat_id, "❌ Ocorreu um erro interno. Tente novamente mais tarde.")
@@ -323,56 +392,6 @@ def get_updates(offset=None):
     except Exception as e:
         logger.error(f"Erro get_updates: {e}")
         return {"ok": False, "result": []}
-    
-
-# -------------------
-# Função de aceitar duelo (aleatório)
-# -------------------
-def accept_duel(user_id, chat_id):
-    # Busca duelo pendente
-    res = execute_sql(
-        'SELECT id, challenger_id, defender_id FROM duelos WHERE defender_id=%s AND status=%s ORDER BY created_at ASC LIMIT 1',
-        (user_id, 'pendente'), fetch=True
-    )
-    if not res:
-        return "❌ Nenhum duelo pendente para você aceitar!"
-    duel_id, challenger_id, defender_id = res[0]
-
-    # Pega nomes dos jogadores
-    challenger_data = execute_sql(
-        'SELECT username FROM player_tetas WHERE user_id=%s AND chat_id=%s',
-        (challenger_id, chat_id), fetch=True
-    )
-    defender_data = execute_sql(
-        'SELECT username FROM player_tetas WHERE user_id=%s AND chat_id=%s',
-        (defender_id, chat_id), fetch=True
-    )
-    if not challenger_data or not defender_data:
-        return "❌ Um dos jogadores não está registrado!"
-
-    challenger_name = challenger_data[0][0]
-    defender_name = defender_data[0][0]
-
-    # Escolhe vencedor aleatoriamente
-    winner_id, loser_id = random.choice([(challenger_id, defender_id), (defender_id, challenger_id)])
-    winner_name = challenger_name if winner_id == challenger_id else defender_name
-    loser_name = defender_name if loser_id == defender_id else challenger_name
-
-    # Atualiza teta: vencedor +5 a +15, perdedor -1 a -10
-    gain = random.randint(5, 15)
-    loss = random.randint(1, 10)
-    execute_sql('UPDATE player_tetas SET tamanho_teta=tamanho_teta+%s WHERE user_id=%s AND chat_id=%s',
-                (gain, winner_id, chat_id))
-    execute_sql('UPDATE player_tetas SET tamanho_teta=GREATEST(tamanho_teta-%s,0) WHERE user_id=%s AND chat_id=%s',
-                (loss, loser_id, chat_id))
-
-    # Marca duelo como concluído
-    execute_sql('UPDATE duelos SET status=%s WHERE id=%s', ('concluido', duel_id))
-
-    return (f"🏆 @{winner_name} venceu o duelo contra @{loser_name}!\n"
-            f"🎉 Ganhou +{gain} CM de teta!\n"
-            f"😢 @{loser_name} perdeu -{loss} CM de teta.")
-
 
 # -------------------
 # Loop principal
