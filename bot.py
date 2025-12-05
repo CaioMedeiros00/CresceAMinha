@@ -63,7 +63,6 @@ def init_db():
             continue
         try:
             cur = conn.cursor()
-            # Tabela de jogadores
             cur.execute('''
                 CREATE TABLE IF NOT EXISTS player_tetas (
                     id SERIAL PRIMARY KEY,
@@ -78,7 +77,6 @@ def init_db():
                     UNIQUE(user_id, chat_id)
                 )
             ''')
-            # Tabela de duelos
             cur.execute('''
                 CREATE TABLE IF NOT EXISTS duelos (
                     id SERIAL PRIMARY KEY,
@@ -227,7 +225,7 @@ def get_user_stats(user_id, chat_id):
             f"📅 Status: **{status}**")
 
 # -------------------
-# Função de doar teta
+# Doar teta
 # -------------------
 def donate_teta(donor_id, target_username, chat_id, amount, reply_user_id=None):
     target_id = None
@@ -262,27 +260,24 @@ def donate_teta(donor_id, target_username, chat_id, amount, reply_user_id=None):
     return f"🎁 Doação concluída! {amount} CM de teta foram doados."
 
 # -------------------
-# Funções de duelo
+# Duelo
 # -------------------
-def start_duel(challenger_id, target_username, chat_id, reply_user_id=None):
-    target_id = None
-    if target_username:
-        res = execute_sql(
-            'SELECT user_id FROM player_tetas WHERE username=%s AND chat_id=%s',
-            (target_username, chat_id), fetch=True
-        )
-        if res:
-            target_id = res[0][0]
-    elif reply_user_id:
-        target_id = reply_user_id
-
-    if not target_id or target_id == challenger_id:
-        return "❌ Alvo inválido para duelo!"
-
-    # Insere duelo pendente
-    execute_sql('INSERT INTO duelos (challenger_id, defender_id, status) VALUES (%s,%s,%s)',
-                (challenger_id, target_id, 'pendente'))
-    return "⚔️ Duelo iniciado! O jogador marcado deve aceitar com /aceitar"
+def start_duel(challenger_id, target_username, chat_id):
+    target_data = execute_sql(
+        'SELECT user_id FROM player_tetas WHERE username=%s AND chat_id=%s',
+        (target_username, chat_id), fetch=True
+    )
+    if not target_data:
+        return "❌ Jogador não encontrado!"
+    defender_id = target_data[0][0]
+    if defender_id == challenger_id:
+        return "❌ Não pode duelar consigo mesmo!"
+    # Cria duelo pendente
+    execute_sql(
+        'INSERT INTO duelos (challenger_id, defender_id) VALUES (%s,%s)',
+        (challenger_id, defender_id)
+    )
+    return f"⚔️ Duelo iniciado contra @{target_username}! Ele precisa aceitar com /aceitar"
 
 def accept_duel(user_id, chat_id):
     res = execute_sql(
@@ -290,16 +285,23 @@ def accept_duel(user_id, chat_id):
         (user_id, 'pendente'), fetch=True
     )
     if not res:
-        return "❌ Nenhum duelo pendente para você aceitar!"
+        return "❌ Nenhum duelo pendente!"
     duel_id, challenger_id, defender_id = res[0]
 
-    # Pega nomes
-    challenger_name = execute_sql('SELECT username FROM player_tetas WHERE user_id=%s AND chat_id=%s',
-                                  (challenger_id, chat_id), fetch=True)[0][0]
-    defender_name = execute_sql('SELECT username FROM player_tetas WHERE user_id=%s AND chat_id=%s',
-                                (defender_id, chat_id), fetch=True)[0][0]
+    challenger_data = execute_sql(
+        'SELECT username FROM player_tetas WHERE user_id=%s AND chat_id=%s',
+        (challenger_id, chat_id), fetch=True
+    )
+    defender_data = execute_sql(
+        'SELECT username FROM player_tetas WHERE user_id=%s AND chat_id=%s',
+        (defender_id, chat_id), fetch=True
+    )
+    if not challenger_data or not defender_data:
+        return "❌ Um dos jogadores não está registrado!"
 
-    # Vencedor aleatório
+    challenger_name = challenger_data[0][0]
+    defender_name = defender_data[0][0]
+
     winner_id, loser_id = random.choice([(challenger_id, defender_id), (defender_id, challenger_id)])
     winner_name = challenger_name if winner_id == challenger_id else defender_name
     loser_name = defender_name if loser_id == defender_id else challenger_name
@@ -360,19 +362,22 @@ def process_message(update):
                 send_message(chat_id, "❌ Valor inválido.")
                 return
             send_message(chat_id, donate_teta(user_id, target, chat_id, amount, reply_user_id))
-        elif text.startswith("/duelar"):
+        elif text.startswith("/duelar") or text.startswith("/duelo"):
             parts = text.split()
-            target = parts[1][1:] if len(parts) >= 2 and parts[1].startswith("@") else None
-            send_message(chat_id, start_duel(user_id, target, chat_id, reply_user_id))
+            if len(parts) < 2 or not parts[1].startswith("@"):
+                send_message(chat_id, "❌ Use /duelar @usuario")
+            else:
+                target_username = parts[1][1:]
+                send_message(chat_id, start_duel(user_id, target_username, chat_id))
         elif text.startswith("/aceitar"):
             send_message(chat_id, accept_duel(user_id, chat_id))
         elif text.startswith("/start") or text.startswith("/ajuda"):
-            send_message(chat_id, "🎮 **BOT DE RANKING DIÁRIO** 🎮\n\n"
+            send_message(chat_id, "🎮 **CRESCE A MINHA TETA** 🎮\n\n"
                                  "/jogar - Jogar uma vez por dia\n"
                                  "/ranking - Ver o ranking\n"
                                  "/meupainel - Ver suas estatísticas\n"
                                  "/doar @usuario valor - Doar teta\n"
-                                 "/duelar @usuario - Desafiar alguém para duelo\n"
+                                 "/duelar @usuario - Iniciar duelo\n"
                                  "/aceitar - Aceitar duelo pendente")
     except Exception as e:
         logger.error(f"Erro ao processar mensagem: {e}")
@@ -387,10 +392,7 @@ def get_updates(offset=None):
     except Exception as e:
         logger.error(f"Erro get_updates: {e}")
         return {"ok": False, "result": []}
-
-# -------------------
-# Registrar comandos no Telegram
-# -------------------
+    
 def set_bot_commands():
     commands = [
         {"command": "jogar", "description": "Jogar uma vez por dia"},
@@ -412,6 +414,18 @@ def set_bot_commands():
     except Exception as e:
         logger.error(f"Erro ao atualizar comandos: {e}")
 
+def main():
+    logger.info("Iniciando bot...")
+    if not init_db():
+        logger.error("Falha ao inicializar banco. Encerrando.")
+        return
+
+    set_bot_commands()  # <-- aqui
+
+    logger.info("🤖 Bot iniciado com sucesso!")
+    ...
+
+
 # -------------------
 # Loop principal
 # -------------------
@@ -421,9 +435,7 @@ def main():
         logger.error("Falha ao inicializar banco. Encerrando.")
         return
 
-    set_bot_commands()
     logger.info("🤖 Bot iniciado com sucesso!")
-
     last_update_id = None
     error_count = 0
     max_errors = 5
