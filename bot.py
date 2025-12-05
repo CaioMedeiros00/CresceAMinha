@@ -392,6 +392,39 @@ def get_updates(offset=None):
     except Exception as e:
         logger.error(f"Erro get_updates: {e}")
         return {"ok": False, "result": []}
+    
+def set_bot_commands():
+    commands = [
+        {"command": "jogar", "description": "Jogar uma vez por dia"},
+        {"command": "ranking", "description": "Ver o ranking"},
+        {"command": "meupainel", "description": "Ver suas estatísticas"},
+        {"command": "doar", "description": "Doar teta para outro jogador"},
+        {"command": "duelar", "description": "Iniciar duelo com outro jogador"},
+        {"command": "aceitar", "description": "Aceitar duelo pendente"},
+        {"command": "start", "description": "Instruções do bot"},
+        {"command": "ajuda", "description": "Instruções do bot"}
+    ]
+    try:
+        url = URL + "setMyCommands"
+        response = requests.post(url, json={"commands": commands}, timeout=10)
+        if response.status_code == 200:
+            logger.info("Comandos do bot atualizados com sucesso!")
+        else:
+            logger.error(f"Falha ao atualizar comandos: {response.status_code} - {response.text}")
+    except Exception as e:
+        logger.error(f"Erro ao atualizar comandos: {e}")
+
+def main():
+    logger.info("Iniciando bot...")
+    if not init_db():
+        logger.error("Falha ao inicializar banco. Encerrando.")
+        return
+
+    set_bot_commands()  # <-- aqui
+
+    logger.info("🤖 Bot iniciado com sucesso!")
+    ...
+
 
 # -------------------
 # Loop principal
